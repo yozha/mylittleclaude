@@ -1,0 +1,17 @@
+# One entry per Claude Code "instance" — a (host, workdir) pair.
+# Instance name must match ^[a-z0-9][a-z0-9_-]{0,30}$.
+# Reference instances from Telegram with /new <name>.
+
+instances:
+  controller:
+    description: "Claude Code on this controller VPS"
+    host: local
+    workdir: /home/claude/projects/controller
+
+  # Example remote worker (delete or edit before deploying):
+  #
+  # gpu-box:
+  #   description: "GPU dev box"
+  #   host: claude@gpu-box.internal
+  #   workdir: /home/claude/projects/work
+  #   ssh_key: /home/claude/.ssh/mylittleclaude_ed25519

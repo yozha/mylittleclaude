@@ -1,0 +1,11 @@
+.env
+servers.yaml
+data/
+.venv/
+__pycache__/
+*.egg-info/
+*.pyc
+.pytest_cache/
+
+# Private notes, not for the repo
+priv/

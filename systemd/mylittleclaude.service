@@ -1,0 +1,24 @@
+[Unit]
+Description=mylittleclaude Telegram bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=claude
+WorkingDirectory=/home/claude/mylittleclaude
+EnvironmentFile=/home/claude/mylittleclaude/.env
+ExecStart=/home/claude/mylittleclaude/.venv/bin/python -m mylittleclaude
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+# Hardening (mild — must not block local subprocess + ssh)
+NoNewPrivileges=true
+ProtectSystem=full
+ProtectHome=read-only
+ReadWritePaths=/home/claude/mylittleclaude /home/claude/projects
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
