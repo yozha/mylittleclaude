@@ -9,3 +9,4 @@ __pycache__/
 
 # Private notes, not for the repo
 priv/
+.backup/

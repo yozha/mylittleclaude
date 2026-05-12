@@ -37,94 +37,112 @@ A single-operator Telegram bot that drives one or more [Claude Code](https://git
 
 State lives in `data/mylittleclaude.db` (SQLite WAL). Per-run outputs are saved to `data/runs/<topic_id>/<UTC-timestamp>.md`.
 
-## Deploy your own
+## Install
 
-### 1. Prerequisites
+The recommended path is the installer — it handles prereqs (apt/dnf), Claude Code, the venv, the wizard, the systemd unit, and the `mylittleclaude-setup` command in one shot.
 
-A VPS with:
-
-- Ubuntu 22.04+ (or equivalent), with a regular user. Examples assume `claude`.
-- Python 3.11+.
-- [Claude Code](https://docs.anthropic.com/en/docs/agents-and-tools/claude-code) installed for the runtime user, **logged in** (`claude` once interactively to authenticate).
-- A Telegram account.
-
-### 2. Bot token + group
-
-1. Talk to [@BotFather](https://t.me/BotFather) on Telegram: `/newbot`. Save the token.
-2. Create a new supergroup. In the group settings, enable **Topics**.
-3. Add your bot. Promote it to admin with **Manage Topics** permission. (Other admin permissions optional.)
-4. *Optional but recommended:* disable the bot's group-privacy mode via BotFather → `/setprivacy` → `Disable`, so the bot can see all messages in the group.
-
-### 3. Install the service
+### Quick install (clone + script)
 
 ```bash
-sudo useradd -m -s /bin/bash claude   # if not already present
-sudo -iu claude
-cd ~
-git clone https://github.com/<you>/mylittleclaude.git
-cd mylittleclaude
-python3.11 -m venv .venv
-.venv/bin/pip install -e .
-cp .env.example .env
-cp servers.example.yaml servers.yaml
-chmod 600 .env servers.yaml
+git clone https://github.com/yozha/mylittleclaude.git ~/mylittleclaude
+cd ~/mylittleclaude
+./install.sh
 ```
 
-Fill in `.env`:
+### Curl|bash install
 
-```
-TELEGRAM_BOT_TOKEN=12345:xxxxxxxxxxxxxxxxxxxxxx
-ALLOWED_USER_IDS=11111111         # your Telegram user ID (you can find it below)
-ALLOWED_GROUP_IDS=                 # leave empty for first boot
-```
-
-### 4. Bootstrap the group ID
-
-Start the service in the foreground once to bootstrap:
+If you trust the repo, this is the one-liner equivalent:
 
 ```bash
-.venv/bin/python -m mylittleclaude
+curl -fsSL https://raw.githubusercontent.com/yozha/mylittleclaude/main/bootstrap.sh | bash
 ```
 
-In the group's General topic, send `/chatid`. The bot replies with the chat ID. Stop the service (Ctrl-C), put the chat ID into `ALLOWED_GROUP_IDS`, restart.
+`bootstrap.sh` clones, checks out the latest release tag, and execs `install.sh`. Set `MYLITTLECLAUDE_TAG=vX.Y.Z` to pin a specific version, or `MYLITTLECLAUDE_DIR=/path` to change the install location (default `~/mylittleclaude`).
 
-### 5. Configure instances
+### What the installer does
 
-Edit `servers.yaml` to declare instances. Each instance is a `(host, workdir)` pair:
+1. Refuses to run as root, checks for `sudo` (or `--no-sudo` to skip systemd).
+2. Detects your distro (Debian/Ubuntu or Fedora/RHEL/Rocky/Alma).
+3. Installs missing prereqs: `python3.11+`, `python3-venv`, `git`, `curl`, `nodejs >= 20`, `npm`, `rsync`, `openssh-client`.
+4. Installs Claude Code via `npm install -g @anthropic-ai/claude-code`.
+5. Asks you to authenticate Claude Code (manual step, see prompt). You can defer this.
+6. Creates `.venv` and `pip install -e .`.
+7. Runs the configuration wizard.
+8. Installs `systemd/mylittleclaude.service` (paths rewritten for your install dir) and `enable`s it.
+9. Symlinks `~/.local/bin/mylittleclaude-setup` to the venv entry point.
 
-```yaml
-instances:
-  controller:
-    description: "Claude Code on this controller VPS"
-    host: local
-    workdir: /home/claude/projects/controller
-```
+### The wizard
 
-Create the directory first: `mkdir -p /home/claude/projects/controller`.
+The wizard collects:
 
-Restart the service after every edit — there is no hot reload.
+- **Bot token** from [@BotFather](https://t.me/BotFather) (instructions shown inline).
+- **Your Telegram user ID** from [@userinfobot](https://t.me/userinfobot).
+- **At least one instance** — a `(host, workdir)` pair where Claude will run.
+- **Group ID** of the supergroup you'll use the bot from. Defer this if you haven't created the group yet — the bot will start in *bootstrap mode* and you can complete setup by re-running `mylittleclaude-setup`.
 
-### 6. Install as a systemd service
+Type `back`, `skip`, or `quit` at any prompt. Every field you skip becomes a *deferred field* and is surfaced in the final summary, so you know exactly what's still needed.
 
-```bash
-sudo cp systemd/mylittleclaude.service /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable --now mylittleclaude
-sudo journalctl -u mylittleclaude -f
-```
+### Use it
 
-### 7. Use it
+In the General topic of your supergroup:
 
-In the General topic:
-
+- `/chatid` — bot replies with the chat ID. Use this if you skipped the group-ID step.
 - `/instances` — list configured instances.
-- `/new controller` — bot creates a forum topic `controller #1`.
+- `/new <instance>` — bot creates a forum topic `<instance> #1`.
 
 In the new topic:
 
 - Send a message. The bot launches Claude Code with your prompt and posts the result.
 - Send a file. The bot saves it to `<workdir>/_inbox/<timestamp>_<filename>`.
 - `/info`, `/get <path>`, `/kill`, `/reset`, `/close`.
+
+## Completing a deferred setup
+
+If you installed in bootstrap mode (no group ID yet):
+
+1. Create the Telegram supergroup, add the bot as admin with **Manage Topics**, enable Topics.
+2. In the group's General topic, send `/chatid`. The bot replies with the chat ID.
+3. Re-run `mylittleclaude-setup` and paste the chat ID. Existing answers are pre-filled — press Enter to keep them.
+
+The same flow works for any other deferred field (token, user ID, instance).
+
+## Update / rollback
+
+```bash
+mylittleclaude-setup update                   # update to latest tag
+mylittleclaude-setup update --tag v0.3.0      # pin a tag
+mylittleclaude-setup update --branch main     # dev mode (warned)
+mylittleclaude-setup rollback                 # pick a previous backup
+```
+
+The update flow stops the service, backs up the install dir (excluding `.venv`, `data/`, `.git/`) plus `.env` and `servers.yaml` to `.backup/vX.Y.Z-<timestamp>/`, then checks out, reinstalls, migrates the DB, and restarts. If any step fails, it auto-rolls back.
+
+The last 5 backups are kept; older ones are pruned.
+
+DB migrations are forward-only. Rolling back from a version that added a schema change will work for the rollback itself but the older bot may refuse to start against the newer schema — in that case, restore from a data backup or stay on the newer version.
+
+## Uninstall
+
+```bash
+mylittleclaude-setup uninstall
+```
+
+Asks four separate questions:
+
+1. Stop + remove the systemd unit and the `mylittleclaude-setup` symlink? (required to proceed)
+2. Also delete the data directory (`data/`)?
+3. Also delete `.env` and `servers.yaml`?
+4. Also delete the install dir (`~/mylittleclaude`)?
+
+Each is independent — say no to keep that part.
+
+## Status / logs
+
+```bash
+mylittleclaude-setup status   # service active? configured? deferred fields?
+mylittleclaude-setup logs     # journalctl -u mylittleclaude -f
+mylittleclaude-setup version  # what version is installed
+```
 
 ## Adding more servers
 
@@ -178,3 +196,100 @@ Issues welcome. PRs reviewed at the operator's pace. Keep changes small and alig
 ## License
 
 MIT — see [LICENSE](LICENSE).
+
+## Appendix: manual install (no installer)
+
+If you're on a non-systemd or non-Debian/RHEL system, or you want to install without running `install.sh`, here's the manual path. The installer just automates these steps.
+
+### 1. Prereqs
+
+A VPS with:
+
+- Ubuntu 22.04+ (or equivalent), with a regular user. Examples assume `claude`.
+- Python 3.11+.
+- Node.js 20+ and npm.
+- [Claude Code](https://docs.anthropic.com/en/docs/agents-and-tools/claude-code) installed for the runtime user (`npm install -g @anthropic-ai/claude-code`) and **logged in** (run `claude` once interactively).
+- A Telegram account.
+
+### 2. Bot token + group
+
+1. Talk to [@BotFather](https://t.me/BotFather) on Telegram: `/newbot`. Save the token.
+2. Create a new supergroup. In the group settings, enable **Topics**.
+3. Add your bot. Promote it to admin with **Manage Topics** permission.
+4. *Optional but recommended:* disable the bot's group-privacy mode via BotFather → `/setprivacy` → `Disable`.
+
+### 3. Clone + venv
+
+```bash
+sudo useradd -m -s /bin/bash claude   # if not already present
+sudo -iu claude
+cd ~
+git clone https://github.com/<you>/mylittleclaude.git
+cd mylittleclaude
+python3.11 -m venv .venv
+.venv/bin/pip install -e .
+cp .env.example .env
+cp servers.example.yaml servers.yaml
+chmod 600 .env servers.yaml
+```
+
+### 4. Fill in `.env`
+
+```
+TELEGRAM_BOT_TOKEN=12345:xxxxxxxxxxxxxxxxxxxxxx
+ALLOWED_USER_IDS=11111111         # your Telegram user ID
+ALLOWED_GROUP_IDS=                 # leave empty for first boot
+```
+
+Find your user ID by messaging [@userinfobot](https://t.me/userinfobot).
+
+### 5. Bootstrap the group ID
+
+Start the service in the foreground once:
+
+```bash
+.venv/bin/python -m mylittleclaude
+```
+
+In the group's General topic, send `/chatid`. The bot replies with the chat ID. Stop the service (Ctrl-C), put the chat ID into `ALLOWED_GROUP_IDS`, restart.
+
+### 6. Configure instances
+
+Edit `servers.yaml`:
+
+```yaml
+instances:
+  controller:
+    description: "Claude Code on this controller VPS"
+    host: local
+    workdir: /home/claude/projects/controller
+```
+
+Create the directory: `mkdir -p /home/claude/projects/controller`.
+
+Restart the service after every edit — there is no hot reload.
+
+### 7. Install as a systemd service (optional)
+
+```bash
+sudo cp systemd/mylittleclaude.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now mylittleclaude
+sudo journalctl -u mylittleclaude -f
+```
+
+On non-systemd systems, run `.venv/bin/python -m mylittleclaude` under your supervisor of choice (runit, OpenRC, supervisord, etc.). It logs to stdout/stderr.
+
+### Manual smoke test
+
+After install, verify each of these:
+
+- `mylittleclaude-setup status` shows everything ✓ and `Service active: yes`.
+- In the group's General topic, `/instances` lists your configured instances.
+- `/new <instance>` creates a new forum topic.
+- In the new topic, sending a plain message produces a `⏳ Working...` message that updates with the final result.
+- Sending a file in the topic produces `📥 Saved to _inbox/...`.
+- Killing a long prompt with the `[Kill]` button or `/kill` produces a `🛑 Killed at ...` message.
+- `mylittleclaude-setup update` updates to a newer tag and preserves your `.env` / `servers.yaml` / `data/`.
+- `mylittleclaude-setup rollback` lists backups and restores one.
+- `mylittleclaude-setup uninstall` removes the unit cleanly.

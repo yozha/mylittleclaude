@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mylittleclaude"
-version = "0.1.0"
+version = "0.2.0"
 description = "Single-operator Telegram bot for driving Claude Code instances across one or more servers."
 readme = "README.md"
 license = { text = "MIT" }
@@ -26,10 +26,11 @@ dev = [
 
 [project.scripts]
 mylittleclaude = "mylittleclaude.__main__:main"
+mylittleclaude-setup = "mylittleclaude.installer.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
-testpaths = ["tests"]
+testpaths = ["tests", "src/mylittleclaude/installer/tests"]

@@ -15,12 +15,19 @@ def main() -> int:
         "--check-config", action="store_true",
         help="Validate .env and servers.yaml, then exit 0/1.",
     )
+    parser.add_argument(
+        "--migrate-db", action="store_true",
+        help="Open the DB (applying any pending migrations) and exit.",
+    )
     args = parser.parse_args()
 
     setup_logging()
 
     if args.check_config:
         return check_config_cli()
+
+    if args.migrate_db:
+        return _migrate_db_cli()
 
     try:
         cfg = load_config()
@@ -35,6 +42,24 @@ def main() -> int:
     except KeyboardInterrupt:
         logging.getLogger(__name__).info("shutdown requested")
         return 0
+    return 0
+
+
+def _migrate_db_cli() -> int:
+    log = logging.getLogger(__name__)
+    try:
+        cfg = load_config()
+    except ConfigError as e:
+        log.error("config error: %s", e)
+        return 1
+    from .db import open_db
+    try:
+        conn = asyncio.run(open_db(cfg.data_dir))
+        asyncio.run(conn.close())
+    except Exception as e:
+        log.error("db migration failed: %s", e)
+        return 1
+    print(f"OK: db at {cfg.data_dir / 'mylittleclaude.db'} is up to date")
     return 0
 
 
