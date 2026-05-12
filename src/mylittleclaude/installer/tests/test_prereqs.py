@@ -10,6 +10,8 @@ from mylittleclaude.installer.prereqs import (
     audit,
     detect_distro,
     install_commands,
+    python_minor_version,
+    venv_apt_package_name,
 )
 
 
@@ -123,3 +125,77 @@ def test_install_commands_unsupported_distro(tmp_path):
     d = detect_distro(p)
     report = PrereqReport(distro=d, missing=list(PREREQS), present=[], unsupported=[])
     assert install_commands(report) == []
+
+
+# --- v0.2.1: functional checks + dynamic venv package name -------------------
+
+
+def test_python_minor_version_works():
+    # The test runner's Python is what we read; should be 3.<something>.
+    v = python_minor_version()
+    assert v is not None
+    major, minor = v.split(".")
+    assert major == "3"
+    assert int(minor) >= 11
+
+
+def test_python_minor_version_returns_none_for_missing_binary():
+    assert python_minor_version("/this/path/does/not/exist") is None
+
+
+def test_venv_apt_package_name_matches_running_python():
+    pkg = venv_apt_package_name()
+    # On any real Python 3.11+ host, this should be "python3.<minor>-venv".
+    assert pkg.startswith("python3.")
+    assert pkg.endswith("-venv")
+    # And it should agree with python_minor_version.
+    minor = python_minor_version()
+    assert minor is not None
+    assert pkg == f"python{minor}-venv"
+
+
+def test_venv_apt_package_name_falls_back_when_probe_fails():
+    pkg = venv_apt_package_name("/this/path/does/not/exist")
+    # Falls back to the generic name. NOT just "python3-venv" — the function
+    # might return that, that's actually what we want as fallback.
+    assert pkg == "python3-venv"
+
+
+def test_install_commands_debian_uses_dynamic_venv_pkg(tmp_path):
+    """v0.2.0 hardcoded 'python3-venv' which silently no-ops on Ubuntu 26.04.
+    The Debian package is named after the running Python's minor version."""
+    p = _write_os_release(tmp_path, "ID=ubuntu\nID_LIKE=debian\n")
+    d = detect_distro(p)
+    venv_req = [r for r in PREREQS if r.name == "python3-venv"]
+    assert venv_req, "PREREQS must contain a python3-venv entry"
+    report = PrereqReport(distro=d, missing=venv_req, present=[], unsupported=[])
+    cmds = install_commands(report)
+    assert len(cmds) == 2
+    assert cmds[0] == ["apt-get", "update", "-y"]
+    # The install line must mention python<X.Y>-venv, NOT the generic name.
+    install_line = cmds[1]
+    assert install_line[:3] == ["apt-get", "install", "-y"]
+    assert len(install_line) == 4
+    assert install_line[3].startswith("python3.")
+    assert install_line[3].endswith("-venv")
+
+
+def test_install_commands_rhel_skips_venv_pkg(tmp_path):
+    """On RHEL family, venv ships with python — no separate package."""
+    p = _write_os_release(tmp_path, "ID=rocky\nID_LIKE=rhel\n")
+    d = detect_distro(p)
+    venv_req = [r for r in PREREQS if r.name == "python3-venv"]
+    report = PrereqReport(distro=d, missing=venv_req, present=[], unsupported=[])
+    cmds = install_commands(report)
+    # No package to install; commands list is empty.
+    assert cmds == []
+
+
+def test_venv_prereq_uses_functional_check():
+    """v0.2.0 used `python3 -c 'import venv'` which passes even when ensurepip
+    is missing. The fix is to use `python3 -m venv --help` which fails iff
+    the subsystem is actually broken."""
+    venv_req = next(r for r in PREREQS if r.name == "python3-venv")
+    assert venv_req.check_cmd == ["python3", "-m", "venv", "--help"]
+    # Sanity: the check passes on this venv.
+    assert venv_req.is_installed() is True

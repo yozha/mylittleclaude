@@ -72,10 +72,17 @@ PREREQS: list[Prereq] = [
     ),
     Prereq(
         name="python3-venv",
-        check_cmd=["python3", "-c", "import venv"],
+        # Functional check: can we actually invoke venv? `import venv` succeeds
+        # even when ensurepip is missing, which is the exact failure mode we hit
+        # on Ubuntu 26.04 / Python 3.14. `python3 -m venv --help` exits non-zero
+        # if any piece of the venv subsystem is broken.
+        check_cmd=["python3", "-m", "venv", "--help"],
+        # Placeholder. `install_commands()` resolves this dynamically because
+        # the Debian package is named after the running Python's minor version
+        # (e.g. python3.14-venv on Ubuntu 26.04, python3.12-venv on 24.04).
         apt_pkg="python3-venv",
         dnf_pkg=None,  # bundled with python3 on RHEL family
-        rationale="venv module is needed for .venv creation",
+        rationale="venv module must be functional, not just importable",
     ),
     Prereq(
         name="git",
@@ -214,18 +221,60 @@ def audit(distro: Distro | None = None) -> PrereqReport:
     )
 
 
+def python_minor_version(python_bin: str = "python3") -> str | None:
+    """Return 'X.Y' for `python_bin` (e.g. '3.14'), or None on failure.
+
+    Used to compute the correct apt package name for venv on Debian-family
+    distros. The shipped package name is `python<X.Y>-venv`, not `python3-venv`,
+    on every modern Ubuntu/Debian — installing the wrong name silently no-ops.
+    """
+    try:
+        r = subprocess.run(
+            [python_bin, "-c",
+             "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')"],
+            capture_output=True, text=True, timeout=5,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if r.returncode != 0:
+        return None
+    out = r.stdout.strip()
+    return out or None
+
+
+def venv_apt_package_name(python_bin: str = "python3") -> str:
+    """Return the Debian/Ubuntu apt package that ships venv for `python_bin`.
+
+    Falls back to the generic 'python3-venv' only when the version probe fails;
+    that's the safest default (it exists as a meta-package on most Debian-based
+    distros). For specific versions we prefer the versioned name.
+    """
+    minor = python_minor_version(python_bin)
+    if not minor:
+        return "python3-venv"
+    return f"python{minor}-venv"
+
+
 def install_commands(report: PrereqReport) -> list[list[str]]:
     """Return the shell commands install.sh should run to fix `missing`.
 
     No sudo prefix — the bash side adds that. We just emit the package lists.
     Returns an empty list if nothing to do.
+
+    The `python3-venv` entry is resolved dynamically against the running
+    Python's minor version (see `venv_apt_package_name`).
     """
     if not report.missing:
         return []
     d = report.distro
     pkgs: list[str] = []
     for req in report.missing:
-        pkg = req.apt_pkg if d.family == "debian" else req.dnf_pkg
+        if req.name == "python3-venv":
+            pkg: str | None = (
+                venv_apt_package_name() if d.family == "debian" else None
+            )
+        else:
+            pkg = req.apt_pkg if d.family == "debian" else req.dnf_pkg
         if pkg:
             pkgs.append(pkg)
     if not pkgs:

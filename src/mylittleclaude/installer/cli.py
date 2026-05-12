@@ -62,8 +62,12 @@ def main(argv: list[str] | None = None) -> int:
         warn("Interrupted.")
         return 130
     except WizardAborted:
-        warn("Aborted by operator.")
-        return 1
+        # Operator typed 'quit' — an explicit clean abort. Exit 0 so the
+        # bash installer doesn't trip its crash trap on what is a user choice.
+        # Any uncommitted state was not written to disk (write_all only runs
+        # on the Review step's confirmation), so the install is unchanged.
+        warn("Aborted by operator — no changes written.")
+        return 0
     except Exception:  # noqa: BLE001 — top-level catchall
         log_path = _dump_traceback()
         err(f"unexpected error — full traceback at {log_path}")
