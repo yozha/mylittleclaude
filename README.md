@@ -4,9 +4,6 @@ A single-operator Telegram bot that drives one or more [Claude Code](https://git
 
 > Public, MIT-licensed, single-tenant, self-hostable. There is no hosted service. Anyone who clones the repo deploys their own bot with their own token.
 
-```
-[screenshot placeholder — operator chat in a Telegram supergroup with topics]
-```
 
 ## Features
 
@@ -211,7 +208,7 @@ A VPS with:
 sudo useradd -m -s /bin/bash claude   # if not already present
 sudo -iu claude
 cd ~
-git clone https://github.com/<you>/mylittleclaude.git
+git clone https://github.com/yozha/mylittleclaude.git
 cd mylittleclaude
 python3.11 -m venv .venv
 .venv/bin/pip install -e .
