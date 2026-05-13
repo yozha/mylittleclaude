@@ -20,22 +20,7 @@ A single-operator Telegram bot that drives one or more [Claude Code](https://git
 
 ## Architecture
 
-```
-                    +----------------------+
-   Telegram  <----> | mylittleclaude (PTB) |   (long polling)
-                    +----------+-----------+
-                               |
-                +--------------+--------------+
-                |                             |
-       host: local                    host: user@remote
-       subprocess(claude)         ssh -T user@remote 'cd … && claude …'
-                |                             |
-                v                             v
-        ~/.claude/projects/…           ~/.claude/projects/…
-                                       _inbox/ via scp
 <img width="1672" height="941" alt="image" src="https://github.com/user-attachments/assets/474e892a-333d-4989-8413-ceec8c83963e" />
-
-```
 
 State lives in `data/mylittleclaude.db` (SQLite WAL). Per-run outputs are saved to `data/runs/<topic_id>/<UTC-timestamp>.md`.
 
