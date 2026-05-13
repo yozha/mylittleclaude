@@ -143,10 +143,16 @@ probe_python_minor() {
 }
 
 probe_venv_ok() {
-    # The check that matters. `import venv` succeeds even when ensurepip is
-    # missing — that's the Ubuntu 26.04 / 3.14 failure we hit. `-m venv --help`
-    # exits non-zero iff the whole subsystem is functional.
-    "$PYTHON_BIN" -m venv --help >/dev/null 2>&1
+    # The actual failure mode on Debian-family is that ensurepip ships in a
+    # separate, version-specific package (python<X.Y>-venv). `import ensurepip`
+    # is the precise probe — it fails iff that package is missing, which is
+    # exactly the condition that breaks `python -m venv .venv`.
+    #
+    # v0.2.0 used `-c 'import venv'` (false positive — venv is stdlib).
+    # v0.2.1 used `-m venv --help` (also false positive — --help just prints
+    #             text without exercising the bootstrap path that needs
+    #             ensurepip). Both proxies; not gold-standard functional checks.
+    "$PYTHON_BIN" -c 'import ensurepip' >/dev/null 2>&1
 }
 
 probe_node_ok() {
@@ -485,16 +491,32 @@ EOF
     done
 }
 
+# Functional probe: does the existing .venv have a working pip?
+# v0.2.1 used `[[ ! -d .venv ]]` which fired only when the directory was
+# absent. But when a prior run failed mid-bootstrap (created the dir tree
+# but never installed pip), .venv existed yet pip didn't, and the install
+# bailed at the first pip call. Probe pip's --version to catch both
+# "missing" and "half-built" states.
+probe_venv_dir_functional() {
+    [[ -x "$INSTALL_DIR/.venv/bin/python" ]] \
+        && [[ -x "$INSTALL_DIR/.venv/bin/pip" ]] \
+        && "$INSTALL_DIR/.venv/bin/pip" --version >/dev/null 2>&1
+}
+
 phase_venv() {
-    if [[ ! -d "$INSTALL_DIR/.venv" ]]; then
+    if ! probe_venv_dir_functional; then
+        if [[ -d "$INSTALL_DIR/.venv" ]]; then
+            say "Existing .venv is incomplete (no working pip); rebuilding."
+            rm -rf "$INSTALL_DIR/.venv"
+        fi
         say "Creating venv at $INSTALL_DIR/.venv..."
         if ! "$PYTHON_BIN" -m venv "$INSTALL_DIR/.venv"; then
             fail "'$PYTHON_BIN -m venv $INSTALL_DIR/.venv' failed even though \
-the venv module reported functional. Check disk space / permissions."
+ensurepip is importable. Check disk space / permissions."
         fi
-    fi
-    if [[ ! -x "$INSTALL_DIR/.venv/bin/python" ]]; then
-        fail ".venv created but $INSTALL_DIR/.venv/bin/python is missing or not executable."
+        if ! probe_venv_dir_functional; then
+            fail ".venv created but pip is missing or non-functional."
+        fi
     fi
 
     say "Installing project (pip install -e .)..."

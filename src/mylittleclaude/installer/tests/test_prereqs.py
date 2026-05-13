@@ -191,11 +191,15 @@ def test_install_commands_rhel_skips_venv_pkg(tmp_path):
     assert cmds == []
 
 
-def test_venv_prereq_uses_functional_check():
-    """v0.2.0 used `python3 -c 'import venv'` which passes even when ensurepip
-    is missing. The fix is to use `python3 -m venv --help` which fails iff
-    the subsystem is actually broken."""
+def test_venv_prereq_probes_ensurepip():
+    """v0.2.0 used `python3 -c 'import venv'` (false positive: venv is stdlib).
+    v0.2.1 used `python3 -m venv --help` (still false positive: --help doesn't
+    exercise the bootstrap path that needs ensurepip — confirmed on a fresh
+    Ubuntu 26.04 / 3.14 VPS where both proxies passed but actual venv creation
+    failed). v0.2.2 probes `import ensurepip` directly: it fails iff ensurepip
+    isn't importable, which is exactly what python<X.Y>-venv provides on
+    Debian-family. Pin the check_cmd here so the lesson sticks."""
     venv_req = next(r for r in PREREQS if r.name == "python3-venv")
-    assert venv_req.check_cmd == ["python3", "-m", "venv", "--help"]
-    # Sanity: the check passes on this venv.
+    assert venv_req.check_cmd == ["python3", "-c", "import ensurepip"]
+    # Sanity: the check passes on this venv (ensurepip ships with stdlib).
     assert venv_req.is_installed() is True

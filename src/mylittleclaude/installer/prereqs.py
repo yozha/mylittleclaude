@@ -72,17 +72,18 @@ PREREQS: list[Prereq] = [
     ),
     Prereq(
         name="python3-venv",
-        # Functional check: can we actually invoke venv? `import venv` succeeds
-        # even when ensurepip is missing, which is the exact failure mode we hit
-        # on Ubuntu 26.04 / Python 3.14. `python3 -m venv --help` exits non-zero
-        # if any piece of the venv subsystem is broken.
-        check_cmd=["python3", "-m", "venv", "--help"],
+        # `import ensurepip` is the precise probe. v0.2.0 used `import venv`
+        # (false positive — venv is in stdlib). v0.2.1 used `-m venv --help`
+        # (still a false positive — --help doesn't exercise the bootstrap
+        # path). Ensurepip is what Debian splits into python<X.Y>-venv; if it
+        # imports, `python -m venv .venv` will succeed.
+        check_cmd=["python3", "-c", "import ensurepip"],
         # Placeholder. `install_commands()` resolves this dynamically because
         # the Debian package is named after the running Python's minor version
         # (e.g. python3.14-venv on Ubuntu 26.04, python3.12-venv on 24.04).
         apt_pkg="python3-venv",
         dnf_pkg=None,  # bundled with python3 on RHEL family
-        rationale="venv module must be functional, not just importable",
+        rationale="ensurepip must be importable (it's the venv bootstrap backend)",
     ),
     Prereq(
         name="git",
