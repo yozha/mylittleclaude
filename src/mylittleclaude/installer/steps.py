@@ -438,6 +438,23 @@ def _format_review(state: WizardState) -> str:
         lines.append("Deferred fields (you'll need to set these later via mylittleclaude-setup):")
         for f in sorted(state.deferred):
             lines.append(f"  - {f}")
+        # Required fields trigger an explicit "bot will refuse to start"
+        # warning so the operator isn't surprised when systemctl reports the
+        # service as inactive after install. Group ID + instances are not
+        # required (bootstrap mode handles those), so they don't trigger this.
+        required_missing = state.deferred & {"TELEGRAM_BOT_TOKEN", "ALLOWED_USER_IDS"}
+        if required_missing:
+            lines.append("")
+            if required_missing == {"TELEGRAM_BOT_TOKEN", "ALLOWED_USER_IDS"}:
+                lines.append(
+                    "⚠ Bot will not start until TELEGRAM_BOT_TOKEN and ALLOWED_USER_IDS are set."
+                )
+            elif "TELEGRAM_BOT_TOKEN" in required_missing:
+                lines.append("⚠ Bot will not start until TELEGRAM_BOT_TOKEN is set.")
+            else:
+                lines.append(
+                    "⚠ Bot will not start until at least one ALLOWED_USER_IDS entry is set."
+                )
     return "\n".join(lines)
 
 

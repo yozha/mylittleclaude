@@ -263,3 +263,68 @@ def test_step_review_format_with_deferred(tmp_path):
     assert "deferred" in out
     assert "Deferred fields" in out
     assert "ALLOWED_GROUP_IDS" in out
+    # Group-only deferred = bootstrap mode = bot will start. No "will not start" line.
+    assert "will not start" not in out
+
+
+# --- v0.2.3: review screen warns specifically on deferred required fields ----
+
+
+def test_review_warns_when_only_token_deferred(tmp_path):
+    state = WizardState(paths=_paths(tmp_path))
+    state.mark_deferred("TELEGRAM_BOT_TOKEN")
+    out = steps._format_review(state)
+    assert "will not start" in out
+    assert "TELEGRAM_BOT_TOKEN" in out
+    # Token-only warning shouldn't mention USER_IDS *as the missing piece* in
+    # the warning line. (It still appears in the deferred-fields list above
+    # if user_ids was also deferred, but that's not what we're testing here.)
+    warning_line = next(
+        line for line in out.splitlines() if "will not start" in line
+    )
+    assert "ALLOWED_USER_IDS" not in warning_line
+
+
+def test_review_warns_when_only_users_deferred(tmp_path):
+    state = WizardState(paths=_paths(tmp_path))
+    state.mark_deferred("ALLOWED_USER_IDS")
+    out = steps._format_review(state)
+    assert "will not start" in out
+    assert "ALLOWED_USER_IDS" in out
+    assert "at least one" in out
+    warning_line = next(
+        line for line in out.splitlines() if "will not start" in line
+    )
+    assert "TELEGRAM_BOT_TOKEN" not in warning_line
+
+
+def test_review_warns_when_both_required_deferred(tmp_path):
+    state = WizardState(paths=_paths(tmp_path))
+    state.mark_deferred("TELEGRAM_BOT_TOKEN")
+    state.mark_deferred("ALLOWED_USER_IDS")
+    out = steps._format_review(state)
+    warning_line = next(
+        line for line in out.splitlines() if "will not start" in line
+    )
+    # Both should be named in the same warning line — the operator needs to
+    # see the full set, not just one.
+    assert "TELEGRAM_BOT_TOKEN" in warning_line
+    assert "ALLOWED_USER_IDS" in warning_line
+
+
+def test_review_no_warning_when_only_nonrequired_deferred(tmp_path):
+    """Only group deferred → bootstrap mode → bot starts. No warning."""
+    state = WizardState(paths=_paths(tmp_path))
+    state.mark_deferred("ALLOWED_GROUP_IDS")
+    out = steps._format_review(state)
+    assert "will not start" not in out
+
+
+def test_review_no_warning_when_nothing_deferred(tmp_path):
+    state = WizardState(paths=_paths(tmp_path))
+    state.bot_token = "123456789:" + "A" * 35
+    state.allowed_user_ids = [11111111]
+    state.allowed_group_ids = [-1001234567890]
+    out = steps._format_review(state)
+    assert "will not start" not in out
+    assert "Deferred fields" not in out

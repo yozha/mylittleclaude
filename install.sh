@@ -594,6 +594,17 @@ phase_systemd() {
     fi
     good "systemd unit installed and enabled."
 
+    # Don't even try to start if the bot's own config validator says it will
+    # refuse. This is a contractual refusal (deferred required fields), not a
+    # bug — asking "Start the service now?" and showing journalctl errors
+    # confuses the operator about whether the install succeeded.
+    if service_will_refuse_to_start; then
+        warn "Not starting the service — required config fields are deferred."
+        warn "Run 'mylittleclaude-setup' once you have the values, then:"
+        warn "    sudo systemctl start mylittleclaude"
+        return 0
+    fi
+
     if ask_yes "Start the service now?" Y; then
         if sudo systemctl start mylittleclaude; then
             sleep 2
@@ -607,6 +618,16 @@ phase_systemd() {
             warn "Service start failed. Inspect with: journalctl -u mylittleclaude -n 50"
         fi
     fi
+}
+
+# Does the bot's own validator say config is good enough to start? If the
+# venv or the bot package isn't installed yet (very early bail), default to
+# attempting start so we don't mask unrelated bugs — the rest of phase_systemd
+# already warns (not fails) on actual start failures.
+service_will_refuse_to_start() {
+    local py="$INSTALL_DIR/.venv/bin/python"
+    [[ -x "$py" ]] || return 1
+    ! "$py" -m mylittleclaude --check-config >/dev/null 2>&1
 }
 
 phase_setup_link() {

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mylittleclaude"
-version = "0.2.2"
+version = "0.2.3"
 description = "Single-operator Telegram bot for driving Claude Code instances across one or more servers."
 readme = "README.md"
 license = { text = "MIT" }

@@ -112,18 +112,41 @@ def _cmd_reconfigure() -> int:
         warn("No changes written.")
         return 0
 
-    # Validate the freshly-written config by running --check-config.
-    rc = _run_check_config(paths)
-    if rc != 0:
-        err("Config validation failed. Inspect the backup files alongside .env/servers.yaml.")
-        return rc
+    # Validate the freshly-written config by running --check-config. The bot
+    # refuses to start when required fields are missing — that's contractual
+    # bootstrap-mode behavior (spec §2.8), not an installer failure. Classify
+    # the rc=non-zero case before deciding whether to abort.
+    rc, msg = _run_check_config(paths)
+    validated = (rc == 0)
+    if validated:
+        say(msg)
+    else:
+        expected_warnings = _classify_check_config_failure(state)
+        if expected_warnings is None:
+            # Not a deferred-field issue → real validation problem, abort.
+            err("Config validation failed. Inspect the backup files alongside .env/servers.yaml.")
+            err(msg)
+            return rc
+        for line in expected_warnings:
+            warn(line)
 
-    good("Configuration written and validated.")
+    if validated:
+        good("Configuration written and validated.")
+    else:
+        info("Configuration written; bot will start once deferred fields are set.")
     _print_post_install_summary(state, paths)
     return 0
 
 
-def _run_check_config(paths) -> int:
+def _run_check_config(paths) -> tuple[int, str]:
+    """Return (exit_code, message). Caller decides err-and-abort vs warn-and-proceed.
+
+    v0.2.2 had this function emit `err(msg)` and return rc directly. That
+    coupled the *transport* (subprocess to bot) to the *classification* (was
+    this a deferred-field refusal or a real bug). v0.2.3 splits them: this
+    function does transport; `_classify_check_config_failure` does the
+    classification.
+    """
     import subprocess
     py = paths.venv_dir / "bin" / "python"
     if not py.exists():
@@ -137,13 +160,37 @@ def _run_check_config(paths) -> int:
             timeout=15,
         )
     except (OSError, subprocess.TimeoutExpired) as e:
-        err(f"could not run --check-config: {e}")
-        return 1
-    if proc.returncode != 0:
-        err(proc.stderr.strip() or proc.stdout.strip())
-        return proc.returncode
-    say(proc.stdout.strip())
-    return 0
+        return 1, f"could not run --check-config: {e}"
+    msg = proc.stderr.strip() or proc.stdout.strip()
+    return proc.returncode, msg
+
+
+def _classify_check_config_failure(state) -> list[str] | None:
+    """Decide whether a --check-config failure is expected (deferred required
+    field) or unexpected (real bug / corrupt config).
+
+    Returns:
+        list[str]: warning lines to display, validation failure is expected.
+        None: unexpected failure; caller should abort.
+
+    The bot's config.py refuses to start without TELEGRAM_BOT_TOKEN or
+    ALLOWED_USER_IDS. Empty ALLOWED_GROUP_IDS is bootstrap mode (no error),
+    and missing instances is just a warning. So a failure is "expected" iff
+    one or both of {TELEGRAM_BOT_TOKEN, ALLOWED_USER_IDS} is in state.deferred.
+    """
+    token_deferred = "TELEGRAM_BOT_TOKEN" in state.deferred
+    users_deferred = "ALLOWED_USER_IDS" in state.deferred
+
+    if token_deferred and users_deferred:
+        return [
+            "Bot will refuse to start until both TELEGRAM_BOT_TOKEN and "
+            "ALLOWED_USER_IDS are set. Re-run mylittleclaude-setup once you have them.",
+        ]
+    if token_deferred:
+        return ["Bot will refuse to start until TELEGRAM_BOT_TOKEN is set."]
+    if users_deferred:
+        return ["Bot will refuse to start until at least one ALLOWED_USER_IDS entry is set."]
+    return None
 
 
 def _print_post_install_summary(state, paths) -> None:
